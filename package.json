@@ -1,0 +1,40 @@
+{
+  "name": "will-it-server",
+  "version": "0.1.0",
+  "description": "More to come",
+  "main": "index.js",
+  "scripts": {
+    "format": "eslint --fix",
+    "lint": "eslint",
+    "test": "teenytest"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rosston/will-it-server.git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/rosston/will-it-server/issues"
+  },
+  "homepage": "https://github.com/rosston/will-it-server#readme",
+  "devDependencies": {
+    "@types/react": "^19.1.15",
+    "eslint": "^9.36.0",
+    "neostandard": "^0.12.2",
+    "teenytest": "^6.0.5",
+    "teenytest-promise": "^1.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.2"
+  },
+  "peerDependencies": {
+    "react": "*"
+  },
+  "teenytest": {
+    "helper": "test/helper.js",
+    "plugins": [
+      "teenytest-promise"
+    ],
+    "testLocator": "test/**/*.test.{js,ts}"
+  }
+}
