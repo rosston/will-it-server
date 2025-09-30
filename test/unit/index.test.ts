@@ -6,4 +6,8 @@ export const serverFunctionTest = {
     const func = serverFunction(() => 'Hello, World!')
     assert.equal(func(), 'Hello, World!')
   },
+  async 'returns an async function that calls the provided async function' () {
+    const func = serverFunction(() => Promise.resolve('Hello, World!'))
+    assert.equal(await func(), 'Hello, World!')
+  },
 }
