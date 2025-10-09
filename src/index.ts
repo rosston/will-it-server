@@ -49,7 +49,7 @@ export type ClientToServerSerializableValue =
   | Promise<ClientToServerSerializableSyncValue>
 
 // Try to enforce https://react.dev/reference/rsc/use-client#serializable-types
-export type ServerToClientSerializableSyncValue =
+type ServerToClientSerializableSyncValue =
   | SerializableValue
   | Record<string, SerializableValue>
   | ReactNode
