@@ -12,8 +12,9 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "example-dev": "tsc && cd examples/next-15 && npm run dev",
-    "example-start": "tsc && cd examples/next-15 && npm run build&& npm start",
+    "build": "tsc -p tsconfig-esm.json",
+    "example-dev": "npm run build && cd examples/next-15 && npm run dev",
+    "example-start": "npm run build && cd examples/next-15 && npm run build&& npm start",
     "format": "eslint --fix",
     "lint": "eslint",
     "test": "teenytest",
