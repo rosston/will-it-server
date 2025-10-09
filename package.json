@@ -17,7 +17,9 @@
     "example-start": "npm run build && cd examples/next-15 && npm run build&& npm start",
     "format": "eslint --fix",
     "lint": "eslint",
-    "test": "teenytest",
+    "test": "npm run test:unit && npm run test:types",
+    "test:unit": "teenytest",
+    "test:types": "tsd --typings src/index.ts",
     "type-check": "tsc --noEmit"
   },
   "repository": {
@@ -37,6 +39,7 @@
     "teenytest": "^6.0.5",
     "teenytest-promise": "^1.0.0",
     "ts-node": "^10.9.2",
+    "tsd": "^0.33.0",
     "typescript": "^5.9.2"
   },
   "peerDependencies": {
@@ -48,5 +51,8 @@
       "teenytest-promise"
     ],
     "testLocator": "test/**/*.test.{js,ts}"
+  },
+  "tsd": {
+    "directory": "test/types"
   }
 }
