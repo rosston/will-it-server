@@ -43,6 +43,8 @@ type ClientToServerSerializableSyncValue =
   | SerializableValue
   | FormData
   | Record<string, SerializableValue>
+  // this is overly broad and not always serializable, but keep the types loose
+  | { }
 
 export type ClientToServerSerializableValue =
   | ClientToServerSerializableSyncValue
@@ -53,6 +55,8 @@ type ServerToClientSerializableSyncValue =
   | SerializableValue
   | Record<string, SerializableValue>
   | ReactNode
+  // this is overly broad and not always serializable, but keep the types loose
+  | { }
 
 export type ServerToClientSerializableValue =
   | ServerToClientSerializableSyncValue
