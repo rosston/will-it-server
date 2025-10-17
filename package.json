@@ -36,6 +36,7 @@
   "homepage": "https://github.com/rosston/will-it-server#readme",
   "devDependencies": {
     "@types/react": "^19.1.15",
+    "@types/react-is": "^19.2.0",
     "eslint": "^9.36.0",
     "neostandard": "^0.12.2",
     "teenytest": "^6.0.5",
@@ -56,5 +57,9 @@
   },
   "tsd": {
     "directory": "test/types"
+  },
+  "dependencies": {
+    "is-plain-obj": "^4.1.0",
+    "react-is": "^19.2.0"
   }
 }

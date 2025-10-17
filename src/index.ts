@@ -1,4 +1,6 @@
+import isPlainObject from 'is-plain-obj'
 import type { ReactNode } from 'react'
+import * as ReactIs from 'react-is'
 
 export type SerializablePrimitive =
   | string
@@ -65,18 +67,77 @@ export type ServerToClientSerializableValue =
 export function isSerializablePrimitive (
   value: unknown
 ): value is SerializablePrimitive {
+  return (
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'bigint' ||
+    typeof value === 'boolean' ||
+    typeof value === 'undefined' ||
+    value === null ||
+    (typeof value === 'symbol' && Boolean(Symbol.keyFor(value)))
+  )
+}
+
+function canPassInEitherDirection (value: unknown): boolean {
+  if (isSerializablePrimitive(value)) {
+    return true
+  }
+
+  if (value instanceof Date) {
+    return true
+  }
+
+  if (Array.isArray(value) || value instanceof Set) {
+    let isFlatIterableSerializable = true
+    for (const arg of value) {
+      if (!canPassInEitherDirection(arg)) {
+        isFlatIterableSerializable = false
+        break
+      }
+    }
+    return isFlatIterableSerializable
+  }
+
+  if (value instanceof Map) {
+    let isMapSerializable = true
+    for (const [k, v] of value) {
+      if (!canPassInEitherDirection(k) || !canPassInEitherDirection(v)) {
+        isMapSerializable = false
+        break
+      }
+    }
+    return isMapSerializable
+  }
+
+  if (isPlainObject(value) && Object.getPrototypeOf(value) !== null) {
+    let isObjectSerializable = true
+    for (const [k, v] of Object.entries(value)) {
+      if (!canPassInEitherDirection(k) || !canPassInEitherDirection(v)) {
+        isObjectSerializable = false
+        break
+      }
+    }
+    return isObjectSerializable
+  }
+
   return false
 }
 
 // Try to enforce
 // https://react.dev/reference/rsc/use-server#serializable-parameters-and-return-values
-export function canPassFromClientToServer (value: unknown): boolean {
-  return true
+export async function canPassFromClientToServer (value: unknown): Promise<boolean> {
+  const resolvedValue = (value && typeof value === 'object' && 'then' in value)
+    ? await Promise.resolve(value)
+    : value
+  return canPassInEitherDirection(resolvedValue) || resolvedValue instanceof FormData
 }
 
 // Try to enforce https://react.dev/reference/rsc/use-client#serializable-types
-export function canPassFromServerToClient (value: unknown): boolean {
-  return true
+export async function canPassFromServerToClient (value: unknown): Promise<boolean> {
+  const resolvedValue = (value && typeof value === 'object' && 'then' in value)
+    ? await Promise.resolve(value)
+    : value
+  return canPassInEitherDirection(resolvedValue) || ReactIs.isElement(resolvedValue)
 }
 
 export function serverFunction<
@@ -87,19 +148,19 @@ export function serverFunction<
   { checksEnabled = true }: { checksEnabled?: boolean } = {
     checksEnabled: true,
   }
-): (...receivedArgs: T[]) => U {
-  return (...receivedArgs: T[]) => {
+): (...receivedArgs: T[]) => Promise<Awaited<U>> {
+  return async (...receivedArgs: T[]) => {
     if (!checksEnabled) {
-      return fn(...receivedArgs)
+      return Promise.resolve(fn(...receivedArgs))
     }
 
-    if (!canPassFromClientToServer(fn)) {
+    if (!await canPassFromClientToServer(receivedArgs)) {
       console.error(
         'Server function was passed arguments that may not be serializable.'
       )
     }
     const result = fn(...receivedArgs)
-    if (!canPassFromServerToClient(result)) {
+    if (!await canPassFromServerToClient(result)) {
       console.error(
         'Server function returned a value that may not be serializable.'
       )
