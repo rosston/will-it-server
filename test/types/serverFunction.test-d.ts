@@ -6,3 +6,4 @@ const someServerFunction = serverFunction(async (input: string) => {
 })
 
 expectType<Promise<{ input: string }>>(someServerFunction('test'))
+// TODO: test that async-ification happens?

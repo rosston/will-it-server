@@ -10,3 +10,5 @@ interface Foo {
 
 const foo: Foo = { foo: 'bar' }
 expectAssignable<ServerToClientSerializableValue>(foo)
+
+// TODO: fill out these tests
