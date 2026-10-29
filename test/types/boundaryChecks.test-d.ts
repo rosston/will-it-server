@@ -169,3 +169,21 @@ serverFunction((): Record<string, unknown> => ({}))
 // structurally indistinguishable from Error. Pinned so the tradeoff stays
 // visible (and can be revisited if we ever scope it to non-literals).
 expectError(serverFunction(() => ({ name: 'chat', message: 'hello' })))
+
+// =========================================================================
+// The escape hatch: serverFunction.unchecked
+// =========================================================================
+
+// hazards on the static walk compile through .unchecked…
+const esc1 = serverFunction.unchecked((cb: () => void) => cb)
+const esc2 = serverFunction.unchecked(() => new Error('x'))
+const esc3 = serverFunction.unchecked(() => ({ name: 'chat', message: 'hello' }))
+// …while wrapper types are fully preserved: correct calls work,
+expectType<Promise<() => void>>(esc1(() => {}))
+expectType<Promise<Error>>(esc2())
+expectType<Promise<{ name: string; message: string }>>(esc3())
+// arity/order are still enforced through the escape
+expectError(esc1())
+expectError(esc1('not a function'))
+// and the checked path is unchanged
+expectError(serverFunction(() => new Error('x')))

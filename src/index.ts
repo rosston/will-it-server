@@ -258,7 +258,7 @@ export async function canPassFromServerToClient (value: unknown): Promise<boolea
   return canPassInEitherDirection(resolvedValue) || ReactIs.isElement(resolvedValue)
 }
 
-export function serverFunction<
+function checkedServerFunction<
   Args extends readonly unknown[],
   Ret
 > (
@@ -286,3 +286,36 @@ export function serverFunction<
     return Promise.resolve(result)
   }
 }
+
+// Escape hatch for when the compile-time walk is WRONG about your function —
+// the documented false positives (a returned `{ name, message }` that is a
+// chat message, not an Error) and pathological cases (declared nesting beyond
+// TypeScript's comparison budget, where TS2321 fires while the brand is being
+// *computed* and no cast can dodge it).
+//
+// What this skips: the static walk only. The wrapper keeps every other type
+// (argument arity/order/labels, awaited return). The RUNTIME checks are not
+// skipped — the boundary still console.errors what actually crosses. This is
+// an assertion that the type layer is mistaken about this function, not that
+// the boundary is safe. Pair every use with a comment saying which; that
+// discipline is policy, not enforcement, and is deliberate: a per-call opt-out
+// the user must *justify* in review is better than a type-only escape (a cast
+// erased from the bundle, ungreppable in audits) or a second overload
+// (muddying every legitimate error message with two-branch noise).
+function uncheckedServerFunction<
+  Args extends readonly unknown[],
+  Ret
+> (
+  fn: (...args: Args) => Ret,
+  options?: { checksEnabled?: boolean }
+): (...receivedArgs: Args) => Promise<Awaited<Ret>> {
+  // the contained `as any` is load-bearing: it skips assignability to the
+  // deferred BoundaryViolation (a generic-context pass-through cannot prove
+  // itself against a deferred brand), while the explicit type args pin the
+  // wrapper signature, so callers keep full types
+  return checkedServerFunction<Args, Ret>(fn as any, options)
+}
+
+export const serverFunction = Object.assign(checkedServerFunction, {
+  unchecked: uncheckedServerFunction
+})

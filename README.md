@@ -54,6 +54,12 @@ against observed Flight behavior and flagged via `console.error`, catching
 what types can't: invalid `Date`s, class instances passed through
 data-shaped types, cycles, and any value whose type was widened to `any`.
 
+When the compile-time walk is wrong about your function — the known false
+positives (a `{ name, message }` chat object reads as an `Error`) or
+pathological declared shapes — `serverFunction.unchecked(fn)` skips the
+static walk only: the wrapper keeps every type, and the runtime layer keeps
+checking. Treat it like `eslint-disable`: pair it with a comment saying why.
+
 The core predicates (`canPassFromClientToServer`, `canPassFromServerToClient`)
 are also exported for building your own checks, serializers, or lint rules.
 

@@ -53,4 +53,14 @@ export const serverFunctionTest = {
     assert.ok(errors.some((e) => e.includes('arguments')), 'arguments warning present')
     assert.ok(errors.some((e) => e.includes('returned')), 'returned warning present')
   },
+  async 'unchecked skips the static walk but the wrapper and runtime checks remain' () {
+    // a callback argument is exactly what the static walk rejects…
+    const func = serverFunction.unchecked((cb: () => void) => 'ok')
+    const errors = await withCapturedConsoleErrors(async () => {
+      // …yet the wrapper stays typed…
+      assert.equal(await func(() => {}), 'ok')
+    })
+    // …and the runtime check still ran for the unsafely-typed arg
+    assert.ok(errors.some((e) => e.includes('arguments')), 'runtime check ran')
+  },
 }
