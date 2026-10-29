@@ -43,6 +43,17 @@ export const saveTodo = serverFunction(async function saveTodo (todo: Todo) {
 })
 ```
 
+`serverFunction` checks types in two layers. At **compile time**, the
+declared argument and return types are walked structurally: callbacks, class
+methods, `URL`-shaped objects, the `Error` family in return position, and
+nested promises are rejected outright — the hazard is a build failure, in
+every mode, no runtime required. (The walk can't see everything — see the
+documented limits in `test/types/boundaryChecks.test-d.ts` — so it never
+replaces the second layer.) At **runtime**, the actual values are checked
+against observed Flight behavior and flagged via `console.error`, catching
+what types can't: invalid `Date`s, class instances passed through
+data-shaped types, cycles, and any value whose type was widened to `any`.
+
 The core predicates (`canPassFromClientToServer`, `canPassFromServerToClient`)
 are also exported for building your own checks, serializers, or lint rules.
 
