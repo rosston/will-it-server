@@ -149,7 +149,7 @@ export function serverFunction<
     checksEnabled: true,
   }
 ): (...receivedArgs: T[]) => Promise<Awaited<U>> {
-  return async (...receivedArgs: T[]) => {
+  return async (...receivedArgs: T[]): Promise<Awaited<U>> => {
     if (!checksEnabled) {
       return Promise.resolve(fn(...receivedArgs))
     }
@@ -165,6 +165,6 @@ export function serverFunction<
         'Server function returned a value that may not be serializable.'
       )
     }
-    return result
+    return Promise.resolve(result)
   }
 }
