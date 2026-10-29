@@ -14,10 +14,21 @@ be validated against real-world behavior and re-checked when versions move.
   client component; production silently replaces it with an opaque stand-in.
   Same app code, different outcomes — the class of bug that only surfaces
   after deploy.
+- `test/flightErrorFamily.test.js` — the fuzz sweep's findings, pinned: the
+  divergence covers the whole `instanceof Error` family (TypeError,
+  DOMException, AggregateError, subclasses, errors behind promises); dev
+  rebuilds them from `{name, message, stack}` only — subclass identity and
+  custom fields are lost even in dev. Rejected promises are loud in both
+  modes but prod hides the reason. Other silent corruptions (URL→string,
+  invalid Date→null, Buffer→`{type:'Buffer',data}`) behave the same in both
+  modes. Arguments fail at encode time symmetrically. Headline invariant:
+  nothing flips success/failure across modes — only Error-bearing returns
+  diverge in content.
 - `test/fixtures/flight-error-roundtrip.js` — drives the actual
   `react-server-dom-webpack` serializer and deserializer for both builds
-  (via `NODE_ENV`, the same mechanism Next.js uses) and reports what the
-  client side ends up with.
+  (via `NODE_ENV`, the same mechanism Next.js uses) in both directions
+  (server→client returns, client→server args) and reports what the client
+  side ends up with.
 
 ## Why exact version pins
 
