@@ -17,6 +17,8 @@
     "build:esm": "tsc -p tsconfig-esm.json && mv lib/index.js lib/index.mjs",
     "example-dev": "npm run build && cd examples/next-15 && npm run dev",
     "example-start": "npm run build && cd examples/next-15 && npm run build&& npm start",
+    "example16-dev": "npm run build && cd examples/next-16 && npm run dev",
+    "example16-start": "npm run build && cd examples/next-16 && npm run build && npm start",
     "format": "eslint --fix",
     "lint": "eslint",
     "test": "npm run test:unit && npm run test:types && npm run test:characterization",
