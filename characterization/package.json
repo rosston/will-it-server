@@ -13,9 +13,9 @@
     "testLocator": "test/**/*.test.js"
   },
   "dependencies": {
-    "react": "19.1.0",
-    "react-dom": "19.1.0",
-    "react-server-dom-webpack": "19.1.0"
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-server-dom-webpack": "19.3.1"
   },
   "devDependencies": {
     "teenytest": "^6.0.5",

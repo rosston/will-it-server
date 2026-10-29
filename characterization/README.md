@@ -49,6 +49,7 @@ The suite runs its fixture with `--conditions react-server` — the same
 export condition Next.js sets for its server builds. It's not optional:
 `react-server-dom-webpack/server.node` throws at load unless `react`
 resolves to its server entry (`"react-server" condition must be enabled`).
-Any Node version new enough for React 19 / Next 15 (Node 18.18+) works;
-the flag itself predates that (`--conditions` exists since Node 12.19/14.9,
-and is non-experimental as of Node 22.9).
+Any Node version new enough for the pinned React works
+(Next 15: Node 18.18+; Next 16: Node 20.9+); the flag itself predates that
+(`--conditions` exists since Node 12.19/14.9, and is non-experimental as of
+Node 22.9).
