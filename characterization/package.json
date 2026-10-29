@@ -1,0 +1,24 @@
+{
+  "name": "will-it-server-characterization",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Characterization tests: pins React Flight's observed behavior around server function return values, at exact versions on purpose.",
+  "scripts": {
+    "test": "teenytest"
+  },
+  "teenytest": {
+    "plugins": [
+      "teenytest-promise"
+    ],
+    "testLocator": "test/**/*.test.js"
+  },
+  "dependencies": {
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-server-dom-webpack": "19.1.0"
+  },
+  "devDependencies": {
+    "teenytest": "^6.0.5",
+    "teenytest-promise": "^1.0.0"
+  }
+}

@@ -19,9 +19,10 @@
     "example-start": "npm run build && cd examples/next-15 && npm run build&& npm start",
     "format": "eslint --fix",
     "lint": "eslint",
-    "test": "npm run test:unit && npm run test:types",
-    "test:unit": "teenytest",
+    "test": "npm run test:unit && npm run test:types && npm run test:characterization",
+    "test:characterization": "npm --prefix characterization install --no-audit --no-fund && npm --prefix characterization test",
     "test:types": "tsd --typings src/index.ts",
+    "test:unit": "teenytest",
     "type-check": "tsc --noEmit"
   },
   "repository": {
