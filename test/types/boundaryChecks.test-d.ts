@@ -168,7 +168,23 @@ serverFunction((): Record<string, unknown> => ({}))
 // KNOWN FALSE POSITIVE: a data-only { name, message } return is
 // structurally indistinguishable from Error. Pinned so the tradeoff stays
 // visible (and can be revisited if we ever scope it to non-literals).
+interface Chat { name: string; message: string }
 expectError(serverFunction(() => ({ name: 'chat', message: 'hello' })))
+
+// The FP is deliberately return-only: in the argument direction, Errors fail
+// loudly at ENCODE in both modes (characterization finding 5), so banning the
+// lookalike shape there buys no new signal — Chat passes args freely.
+serverFunction((c: Chat) => 'ok')
+// Supersets don't help: extra members still extend Error.
+expectError(serverFunction(() => ({ name: 'a', message: 'b', code: 500 })))
+// And the FP mechanism is exactly what blocks Error-in-disguise: a `(): Chat`
+// annotation is a legal Error carrier (Error is assignable to Chat!), so the
+// same structural match that false-positives on the chat shape also refuses
+// to let a real Error hide behind it.
+expectError(serverFunction((): Chat => new Error('x') as unknown as Chat))
+// The surgical escape (cheaper than .unchecked): rename either required
+// member and the type stops extending Error.
+serverFunction(() => ({ title: 'chat', message: 'hello' }))
 
 // =========================================================================
 // The escape hatch: serverFunction.unchecked
