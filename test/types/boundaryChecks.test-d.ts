@@ -35,10 +35,15 @@ serverFunction((a?: string, ...rest: number[]) => a ?? 'x')
 serverFunction((t: readonly [string, number]) => 1)
 // Map/Set with nested plain values (looser than the old unions allowed)
 serverFunction((m: Map<string, PlainTodo>) => new Set<number>([1, 2, 3]))
-// top-level promises both directions
+// promises at any depth, both directions (measured: Flight resolves/streams
+// them faithfully — see the value matrix)
 serverFunction((p: Promise<string>) => Promise.resolve({ ok: true }))
+serverFunction((x: { p: Promise<string> }) => 1)
+serverFunction((p: Promise<Promise<string>>) => 1)
+serverFunction(() => ({ p: Promise.resolve('x'), arr: [Promise.resolve(1)] }))
 // FormData client -> server, ArrayBuffer/typed arrays both directions
 serverFunction((f: FormData) => 'stored')
+serverFunction((x: { fd: FormData }) => 'stored')
 serverFunction((buf: Uint8Array, ab: ArrayBuffer) => buf)
 // any/unknown passthrough (runtime checks are the backstop)
 serverFunction((x: unknown, y: any) => 1)
@@ -63,13 +68,17 @@ serverFunction((c: Cyclic) => 1)
 const passThrough = serverFunction(<T extends PlainTodo>(x: T) => x)
 expectType<Promise<PlainTodo>>(passThrough({ id: 1, text: 'a', completed: false }))
 // option object position unaffected by the brand
-serverFunction(() => 1, { checksEnabled: false })
+serverFunction(() => 1, { mode: 'off' })
 
 // =========================================================================
 // Rejected — argument direction (client -> server)
 // =========================================================================
 
 // callback argument
+// NOTE: the function ban also false-positives on Server Function VALUES —
+// docs list them as supported both directions and the RUNTIME accepts them
+// ($$typeof react.server.reference tag; value matrix `serverRefs` pins),
+// but a server reference is typed as a plain function. Escape: .unchecked.
 expectError(serverFunction((cb: () => void) => 1))
 // callable interface argument
 expectError(serverFunction((cb: Callback) => 1))
@@ -89,12 +98,12 @@ expectError(serverFunction((p: URLSearchParams) => 1))
 expectError(serverFunction((g: Greeter) => 1))
 // Map with function values
 expectError(serverFunction((m: Map<string, () => void>) => 1))
-// nested promise argument (matches runtime policy)
-expectError(serverFunction((x: { p: Promise<string> }) => 1))
-// doubly-wrapped promise
-expectError(serverFunction((p: Promise<Promise<string>>) => 1))
 // WeakMap argument
 expectError(serverFunction((w: WeakMap<object, string>) => 1))
+// DataView: measured crossing intact in 19.3.1, but on neither docs list —
+// docs-gate rejects it in BOTH directions (before the ArrayBufferView arm)
+expectError(serverFunction((d: DataView) => 1))
+expectError(serverFunction(() => new DataView(new ArrayBuffer(8))))
 // hazard at depth 12
 type Deep12 = { l1: { l2: { l3: { l4: { l5: { l6: { l7: { l8: { l9: { l10: { l11: { l12: { cb: () => void } } } } } } } } } } } } }
 expectError(serverFunction((d: Deep12) => 1))

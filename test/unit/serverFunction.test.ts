@@ -1,4 +1,6 @@
 import { strict as assert } from 'node:assert'
+import { execFileSync } from 'node:child_process'
+import * as path from 'node:path'
 import { serverFunction } from '../../src/index'
 
 // Swaps out console.error for the duration of `run` and hands back the
@@ -53,6 +55,15 @@ export const serverFunctionTest = {
     assert.ok(errors.some((e) => e.includes('arguments')), 'arguments warning present')
     assert.ok(errors.some((e) => e.includes('returned')), 'returned warning present')
   },
+  async 'mode: off silences the runtime checks' () {
+    // declared `unknown` so the static walk passes (same seam as above)
+    const func = serverFunction((x: unknown): unknown => new Error('x'), { mode: 'off' })
+    const errors = await withCapturedConsoleErrors(async () => {
+      const result = await func(() => {}) as Error
+      assert.equal(result.message, 'x')
+    })
+    assert.equal(errors.length, 0, `got: ${errors.join(' | ')}`)
+  },
   async 'unchecked skips the static walk but the wrapper and runtime checks remain' () {
     // a callback argument is exactly what the static walk rejects…
     const func = serverFunction.unchecked((cb: () => void) => 'ok')
@@ -62,5 +73,56 @@ export const serverFunctionTest = {
     })
     // …and the runtime check still ran for the unsafely-typed arg
     assert.ok(errors.some((e) => e.includes('arguments')), 'runtime check ran')
+  },
+  async 'unchecked with mode off silences both layers' () {
+    const func = serverFunction.unchecked((cb: () => void) => 'ok', { mode: 'off' })
+    const errors = await withCapturedConsoleErrors(async () => {
+      assert.equal(await func(() => {}), 'ok')
+    })
+    assert.equal(errors.length, 0, `got: ${errors.join(' | ')}`)
+  },
+
+  // The invariant: this library has NO code path that runs in a production
+  // build. Subprocess because mode resolution reads process.env.NODE_ENV —
+  // teenytest itself must not run under prod. This also pins that an
+  // explicit mode is force-overridden in production (silently, by design).
+  async 'NODE_ENV=production forces checks off, overriding an explicit warn mode' () {
+    const repoRoot = path.join(__dirname, '..', '..')
+    const script = [
+      "require('ts-node').register({ transpileOnly: true })",
+      "const { serverFunction } = require('./src/index.ts')",
+      'let warned = false',
+      'const orig = console.error',
+      'console.error = (...a) => { warned = true; orig(...a) }',
+      "const fn = serverFunction(() => new Error('x'), { mode: 'warn' })",
+      'const g = serverFunction.unchecked((cb) => cb, { mode: \'warn\' })',
+      "fn().then(async () => g(() => {})).then(() => { console.log(warned ? 'WARNED' : 'SILENT') })",
+    ].join('\n')
+    const stdout = execFileSync(
+      process.execPath,
+      ['-e', script],
+      { cwd: repoRoot, env: { ...process.env, NODE_ENV: 'production' }, encoding: 'utf8' }
+    )
+    assert.match(stdout.trim(), /SILENT$/)
+  },
+  async 'NODE_ENV unset keeps checks on (dev default)' () {
+    const repoRoot = path.join(__dirname, '..', '..')
+    const script = [
+      "require('ts-node').register({ transpileOnly: true })",
+      "const { serverFunction } = require('./src/index.ts')",
+      'let warned = false',
+      'const orig = console.error',
+      'console.error = (...a) => { warned = true; void a }',
+      "const fn = serverFunction(() => new Error('x'))",
+      'fn().then(() => { console.log(warned ? \'WARNED\' : \'SILENT\') })',
+    ].join('\n')
+    const env = { ...process.env }
+    delete env.NODE_ENV
+    const stdout = execFileSync(
+      process.execPath,
+      ['-e', script],
+      { cwd: repoRoot, env, encoding: 'utf8' }
+    )
+    assert.match(stdout.trim(), /WARNED$/)
   },
 }
