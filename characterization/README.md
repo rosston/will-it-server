@@ -88,3 +88,14 @@ Any Node version new enough for the pinned React works
 (Next 15: Node 18.18+; Next 16: Node 20.9+); the flag itself predates that
 (`--conditions` exists since Node 12.19/14.9, and is non-experimental as of
 Node 22.9).
+
+## If you write browser-targeted tests: message text differs by client build
+
+The prod opaque stand-in error's `message` is not one string.
+`client.node.production.js` keeps the literal sentence ("An error occurred in
+the Server Components render..."), but browser-targeted bundles — npm's
+`client.browser.production.js` **and** Next's bundled client — generate it via
+`formatProdErrorMessage(441)`, so a real browser shows "Minified React error
+#441; visit https://react.dev/errors/441..." (code 441 maps to the literal
+text). This suite decodes with the node client; any test that asserts decoded
+error text must know which client build decoded the wire.

@@ -73,7 +73,13 @@ export type ServerToClientSerializableValue =
 // then require the original type to still be assignable to its walked form.
 // The check lives in an intersection on the `fn` parameter (not in a generic
 // constraint — `T extends Walk<T>` is banned by TS2313, and a constraint's
-// contravariance would flip `never` back to permissive for arguments).
+// contravariance would flip `never` back to permissive for arguments; nor as
+// a spread-parameter check like `...checks: [] | [error]`, whose deferred
+// conditional can't be proven to accept the empty spread by generic
+// pass-through functions). The brand runs on the DECLARED type: an annotated
+// or union return like `(): Todo | Error` is still rejected — only
+// deliberately opaque widenings (`any`, `unknown`, `Record<string, unknown>`)
+// escape.
 //
 // What this catches: functions/callbacks anywhere (including class methods,
 // URL.toJSON, callable interfaces); the whole instanceof-Error family in
@@ -92,7 +98,9 @@ export type ServerToClientSerializableValue =
 // data-only interfaces, throwing getters, symbol-keyed members, Server
 // Function VALUES (a server reference is typed as a plain function — the
 // runtime tag check accepts them; here they stay a documented false
-// positive with `.unchecked` as the escape), and values widened through
+// positive with `.unchecked` as the escape), symbol registration (whether a
+// given runtime symbol was made via `Symbol.for` is invisible to types), and
+// values widened through
 // `any`/`unknown` annotations. One deliberate FALSE POSITIVE: a return value
 // shaped exactly `{ name, message }` is indistinguishable from `Error` — a
 // structural type system's irreducible limit; annotate or restructure (which
@@ -125,7 +133,7 @@ type BoundaryImpostors =
 
 // Client -> server (arguments). Errors are NOT rejected here: as arguments
 // they fail loudly at encode in the bare path, and arrive as opaque
-// placeholders under Next's temp-ref path (characterization Phase 1b) —
+// placeholders under Next's temp-ref path (characterization value matrix) —
 // either way a structural ban would add only the `{ name, message }`
 // lookalike false positive without new signal. Promises are carried at any
 // depth (measured: the encoder awaits them; the server gets live thenables).
