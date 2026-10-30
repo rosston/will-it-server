@@ -122,12 +122,20 @@ For CI gates: scrape the `console.error` output, or call the predicates
 directly. (A `throw` mode for CI fail-fast may come later; deliberately not
 shipped now.)
 
-Checks are **force-off in production builds, overridable by nothing**: this
-library has no code path that runs in a production build.
+Checks are **force-off in production builds, overridable by nothing** (server
+bundles always run under Node, where the guard lives): this library has no
+code path that *runs* in a production build.
 `process.env.NODE_ENV === 'production'` is folded in by the bundler (the same
-mechanism React's own dev warnings use), so the walker never executes — and
-the calling branch is dead code in prod bundles. An explicit `mode: 'warn'`
-passed in a production build is silently ignored, by design.
+mechanism React's own dev warnings use), and the residual `typeof process`
+guard is true on a Node server, so the walker short-circuits before it
+executes. An explicit `mode: 'warn'` passed in a production build is silently
+ignored, by design.
+
+This is a behavioral guarantee, not a bundle-content one: the `typeof
+process` term can't be folded statically, so prod *server* chunks may ship
+the walker inert — present, but never firing. (Client bundles never contain
+it at all, because a `'use server'` implementation doesn't enter the client's
+module graph — Next's doing, not dead-code elimination.)
 
 Within dev/test runs, `mode` opts you down:
 

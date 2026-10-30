@@ -504,10 +504,13 @@ export interface ServerFunctionOptions {
    * intact; `'off'` silences the runtime checks. A `'throw'` mode may be
    * added later for CI fail-fast — deliberately not shipped yet.
    *
-   * Production builds FORCE checks off, overridable by nothing: this library
-   * has no code path that runs in a production build (the literal
-   * `process.env.NODE_ENV` comparison below is bundler-folded, so the
-   * entire walker is dead code — and DCE-able — in prod bundles).
+   * Production builds FORCE checks off: this library has no code path that
+   * RUNS in a production build. The literal `process.env.NODE_ENV`
+   * comparison below is bundler-folded, and the residual `typeof process`
+   * guard is true on a Node server, so the walker short-circuits before it
+   * executes. The guarantee is behavioral, not about bundle content: the
+   * `typeof process` term can't be folded statically, so prod server chunks
+   * may ship the walker inert — present, but never firing.
    */
   mode?: CheckMode
 }
