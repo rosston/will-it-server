@@ -3,7 +3,7 @@
 import { serverFunction } from 'will-it-server'
 import { store } from './store'
 
-export interface Todo extends Record<string, any> {
+export interface Todo {
   id: number;
   text: string;
   completed: boolean;

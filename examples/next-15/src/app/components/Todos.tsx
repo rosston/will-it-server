@@ -7,7 +7,7 @@ export function Todos () {
   const [todos, setTodos] = useState<Todo[]>([])
 
   const updateTodos = () => {
-    const todosPromise = getTodos() as Promise<Todo[]>
+    const todosPromise = getTodos()
     todosPromise.then(setTodos)
   }
 

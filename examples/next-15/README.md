@@ -1,5 +1,15 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Hazard demos
+
+`/hazards` turns the will-it-server README's boundary matrix into live
+buttons: server functions shaped so the boundary must reject or corrupt
+them. Under `npm run dev`, each call logs a `will-it-server:` console.error
+from the server; in a production build the same calls are library-silent by
+design (checks never run there). The type-layer pins behind these
+demos double as tests — `npm run type-check` here fails the build if
+the walk stops (or wrongly starts) rejecting them.
+
 ## Getting Started
 
 First, run the development server:

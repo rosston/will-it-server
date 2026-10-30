@@ -2,10 +2,6 @@ import path from 'node:path'
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  typescript: {
-    // TODO: Make the types actually work here
-    ignoreBuildErrors: true,
-  },
   turbopack: {
     // The repo root holds its own lockfile; pin the root so Turbopack
     // doesn't have to guess (and won't warn about it).
