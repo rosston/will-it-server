@@ -20,13 +20,43 @@
 //   family    — everything `instanceof Error` + rejected promises (server -> client)
 //   symmetric — corruptions that behave the SAME in dev and prod
 //   args      — client -> server arguments
+//   matrix    — value matrix: every value probed in BOTH directions
+//               ({ ret, arg }); pinned by flightValueMatrix.test.js.
+//               NOTE: the arg probes mimic Next's REAL action path — both
+//               Next 15 and 16 create a client-side TemporaryReferenceSet and
+//               pass it to encodeReply (see server-action-reducer.js), and the
+//               server decodes with its own fresh set (action-handler.js).
+//               With refs, unknown objects (classes, Errors, elements, any
+//               symbol) encode as opaque "$T" placeholders instead of
+//               throwing client-side — unlike the bare path pinned in `args`.
+//   serverRefs — Server-Function VALUES (docs: supported both directions):
+//               $h handles with manifest metadata; decode into live tagged
+//               callables ($$typeof react.server.reference), NOT opaque refs.
 //   logs      — React's dev-build console noise (prod builds log nothing here)
 'use strict'
 
 const { PassThrough } = require('node:stream')
-const { renderToPipeableStream, decodeReply } = require('react-server-dom-webpack/server.node')
+const path = require('node:path')
+const React = require('react')
+// react-server-dom-webpack's manifest resolution assumes the bundler runtime
+// (Next/Turbopack provide it); emulate it so $h server-reference handles can
+// resolve to real modules in this bare-Node fixture.
+if (typeof globalThis.__webpack_require__ === 'undefined') {
+  globalThis.__webpack_require__ = (id) => require(id)
+}
+const { renderToPipeableStream, decodeReply, createTemporaryReferenceSet: createServerTempRefs, registerServerReference } = require('react-server-dom-webpack/server.node')
 const { createFromNodeStream } = require('react-server-dom-webpack/client.node')
-const { encodeReply } = require('react-server-dom-webpack/client.edge')
+const { encodeReply, createTemporaryReferenceSet: createClientTempRefs, createServerReference: createClientServerRef } = require('react-server-dom-webpack/client.edge')
+
+// Next-equivalent server-reference manifest (what the action handler injects
+// into decodeReply): action id -> module + export name.
+const SERVER_REF_MANIFEST = {
+  'fixture:ref': {
+    id: path.join(__dirname, 'server-ref-target.js'),
+    name: 'fixtureAction',
+    chunks: [],
+  },
+}
 
 // Capture React's dev-build console noise so stdout stays pure JSON.
 const logs = []
@@ -89,6 +119,96 @@ const argCases = {
   urlArg: () => new URL('https://example.com/q'),
 }
 
+// -- value matrix --------------------------------------------------------------
+// Every value here is probed in BOTH directions ({ ret: server->client,
+// arg: client->server }) by dedicated helpers; the fresh-factory call per
+// direction keeps cycles and one-shot streams honest.
+const matrixCases = {
+  // Dates
+  invalidDate: () => new Date('nope'),
+  validDate: () => new Date(1234567890000),
+
+  // Nested promises
+  promiseInObject: () => ({ p: Promise.resolve('inner'), plain: 1 }),
+  promiseInArray: () => [Promise.resolve('a'), 'b'],
+  promiseInMapValue: () => new Map([['k', Promise.resolve('v')]]),
+  // pre-attached catch: if the ENCODER never touches this rejection we still
+  // must not crash the fixture process with an unhandled rejection.
+  rejectedPromiseInObject: () => {
+    const p = Promise.reject(new Error('nested-reject'))
+    p.catch(() => {})
+    return { p }
+  },
+
+  // Cycles and shared references
+  cycleSelf: () => { const o = { name: 'self' }; o.self = o; return o },
+  cycleViaArray: () => { const o = { list: [] }; o.list.push(o); return o },
+  sharedRefPair: () => { const s = { x: 1 }; return [s, s] },
+
+  // FormData
+  formDataTop: () => { const fd = new FormData(); fd.set('a', 'b'); return fd },
+  formDataNested: () => { const fd = new FormData(); fd.set('a', 'b'); return { fd } },
+
+  // React elements
+  elementTop: () => React.createElement('div', null, 'hi'),
+  elementNested: () => ({ el: React.createElement('span', null, 'in') }),
+  elementWithFnProp: () => ({ el: React.createElement('div', { onClick: () => {} }) }),
+
+  // Binary
+  arrayBuffer: () => new ArrayBuffer(4),
+  uint8Array: () => new Uint8Array([1, 2, 3]),
+  dataView: () => new DataView(new ArrayBuffer(4)),
+
+  // File/Blob
+  blob: () => new Blob(['hello']),
+  file: () => new File(['hello'], 'a.txt'),
+
+  // Other built-ins
+  regExp: () => /ab+c/gi,
+  weakMap: () => new WeakMap(),
+  weakSet: () => new WeakSet(),
+
+  // Object shapes
+  nullProto: () => { const o = Object.create(null); o.a = 1; return o },
+  symbolKeyedObject: () => ({ [Symbol('hidden')]: 'lost?', visible: 1 }),
+  unregisteredSymbolDeep: () => ({ s: Symbol('nope') }),
+  registeredSymbolTop: () => Symbol.for('matrix.registered'),
+  // Error VALUES as args under Next's temp-ref path (finding 5 pinned only
+  // the bare path, where encode throws).
+  errorValue: () => makeError(),
+
+  // toJSON (the arg direction is the unmeasured half)
+  toJSONObject: () => ({ toJSON: () => 'replaced' }),
+
+  // Class instance with methods, return direction (new half of finding 5)
+  classInstanceWithMethod: () => new TodoValidationError('class-method-probe'),
+
+  // Numeric edges
+  nan: () => NaN,
+  infinity: () => Infinity,
+  negativeZero: () => -0,
+
+  // Second measurement round (source dive of the Next temp-ref encode path):
+  plainObjectTop: () => ({ ok: true }),
+  fnTop: () => function noop () {},
+  readableStreamTop: () => new ReadableStream({ start (c) { c.close() } }),
+  asyncIterableTop: () => (async function * g () { yield 1; yield 2 })(),
+  // Flight touches getters during serialization (in BOTH directions); this
+  // pins what happens when one throws.
+  throwingGetter: () => ({ ok: 1, get boom () { throw new Error('getter-boom') } }),
+  // With temp refs the symbol's registration (Symbol.for vs not) is moot on
+  // the encode side: both become $T placeholders. Pin it.
+  registeredSymbolInObject: () => ({ s: Symbol.for('matrix.r') }),
+  // Date serialization is ISO-only: custom fields are silent casualties.
+  dateWithCustomField: () => Object.assign(new Date(1234567890000), { note: 'lost?' }),
+  // The realistic upload arg: File identity inside FormData.
+  formDataWithFile: () => {
+    const fd = new FormData()
+    fd.set('f', new File(['x'], 'x.txt', { type: 'text/plain' }))
+    return fd
+  },
+}
+
 // -- legacy shape helpers (do not rename: existing tests depend on these) ----
 function describeValue (value) {
   const out = {
@@ -148,11 +268,15 @@ function withTimeout (promise, ms = 3000) {
 }
 
 // Attach no-op handlers so rejected promises inside decoded tuples don't crash
-// the process with unhandled rejections.
-function guardUnhandled (v) {
+// the process with unhandled rejections. Walks plain-object members too (the
+// matrix has rejected promises nested in object members), cycle-safe.
+function guardUnhandled (v, seen = new Set()) {
   try {
-    if (Array.isArray(v)) v.forEach(guardUnhandled)
-    else if (v && typeof v.then === 'function') v.then(() => {}, () => {})
+    if (!v || typeof v !== 'object' || seen.has(v)) return
+    seen.add(v)
+    if (Array.isArray(v)) { v.forEach((x) => guardUnhandled(x, seen)); return }
+    if (typeof v.then === 'function') { v.then(() => {}, () => {}); return }
+    for (const k of Object.keys(v)) guardUnhandled(v[k], seen)
   } catch (e) {}
 }
 
@@ -171,16 +295,140 @@ function describeError (value) {
   }
 }
 
+function normalizeNumber (value) {
+  if (Object.is(value, NaN)) return 'NaN'
+  if (Object.is(value, -0)) return '-0'
+  if (value === Infinity) return 'Infinity'
+  if (value === -Infinity) return '-Infinity'
+  return value
+}
+
+// Next-style arg encode/decode hands unknown objects back as opaque
+// temporary-reference placeholders: a Proxy over a throwing function with
+// $$typeof TEMPORARY_REFERENCE_TAG. Any property read (other than $$typeof,
+// name, then, toJSON, ...) throws "Cannot access X on the server". Detect
+// BEFORE touching anything else on the value.
+const TEMP_REF_TAG = Symbol.for('react.temporary.reference')
+function isTempRef (v) {
+  try {
+    return typeof v === 'function' && v.$$typeof === TEMP_REF_TAG
+  } catch (e) {
+    return false
+  }
+}
+
 function describeAny (value) {
+  if (isTempRef(value)) return { kind: 'opaqueTemporaryReference' }
+  if (typeof value === 'function') return { kind: 'function' }
   if (value instanceof Error) return describeError(value)
   if (value === null || typeof value !== 'object') {
     let normalized = value
     if (typeof value === 'bigint') normalized = String(value) + 'n'
     else if (typeof value === 'symbol') normalized = String(value)
-    else if (typeof value === 'number' && Object.is(value, NaN)) normalized = 'NaN'
+    else if (typeof value === 'number') normalized = normalizeNumber(value)
     return { kind: value === null ? 'null' : typeof value, value: normalized }
   }
-  return { kind: 'object', constructorName: value.constructor && value.constructor.name, json: JSON.stringify(value).slice(0, 140) }
+  let json
+  try {
+    json = JSON.stringify(value).slice(0, 140)
+  } catch (e) {
+    json = String(e.message || e).startsWith('Converting circular structure') ? '<cycle>' : '<throws>'
+  }
+  return { kind: 'object', constructorName: value.constructor && value.constructor.name, json }
+}
+
+// Shallow member-level view of a decoded root/arg: enough to see WHERE a
+// transformation happened (symbol keys dropped? promise survived as a member?
+// cycle restored? two array slots share one object?). Never recurses past
+// depth 1 and never awaits thenable members (awaiting would change what we
+// are characterizing).
+function describeMember (v, root) {
+  if (v === null) return 'null'
+  if (isTempRef(v)) return 'opaqueTempRef'
+  if (typeof v === 'function') return 'function'
+  if (typeof v !== 'object') {
+    if (typeof v === 'symbol') return String(v)
+    if (typeof v === 'bigint') return String(v) + 'n'
+    if (typeof v === 'number') return normalizeNumber(v)
+    return v
+  }
+  if (v === root) return { selfRef: true }
+  if (typeof v.then === 'function') return { thenable: true }
+  return { ctor: v.constructor && v.constructor.name }
+}
+
+function describeShape (value) {
+  if (isTempRef(value)) return { opaqueTemporaryReference: true }
+  if (value === null || typeof value !== 'object') return undefined
+  const shape = {
+    proto: value.constructor && value.constructor.name,
+    keys: [],
+    symbolKeys: [],
+    members: {},
+  }
+  try {
+    shape.symbolKeys = Object.getOwnPropertySymbols(value).map(String)
+  } catch (e) { shape.symbolKeys = '<throws>' }
+  if (value instanceof Map) {
+    shape.mapEntries = [...value].slice(0, 8).map(([k, v]) => [describeMember(k, value), describeMember(v, value)])
+    return shape
+  }
+  if (value instanceof Set) {
+    shape.setItems = [...value].slice(0, 8).map((v) => describeMember(v, value))
+    return shape
+  }
+  if (typeof Blob !== 'undefined' && value instanceof Blob) {
+    shape.blob = { size: value.size, type: value.type, name: typeof value.name === 'string' ? value.name : undefined }
+    return shape
+  }
+  if (typeof FormData !== 'undefined' && value instanceof FormData) {
+    try {
+      shape.formDataEntries = [...value.entries()].slice(0, 6).map(([k, v]) => {
+        if (typeof v !== 'object' || v === null) return [k, v]
+        if (isTempRef(v)) return [k, 'opaqueTempRef']
+        const kind = v.constructor && v.constructor.name
+        return [k, typeof v.name === 'string' ? `${kind}:${v.name}:${v.size}b` : `${kind}:${v.size || ''}`]
+      })
+    } catch (e) {
+      shape.formDataEntries = '<throws>'
+    }
+    return shape
+  }
+  if (typeof ReadableStream !== 'undefined' && value instanceof ReadableStream) {
+    shape.readableStream = { locked: value.locked }
+    return shape
+  }
+  if (typeof value[Symbol.asyncIterator] === 'function') {
+    shape.asyncIterable = true
+    return shape
+  }
+  let keys
+  try {
+    keys = Object.keys(value).slice(0, 12)
+  } catch (e) {
+    shape.keys = '<throws>'
+    return shape
+  }
+  shape.keys = keys
+  const seenObjects = []
+  const shared = []
+  for (const k of keys) {
+    let v
+    try {
+      v = value[k]
+    } catch (e) {
+      shape.members[k] = { getThrows: true }
+      continue
+    }
+    shape.members[k] = describeMember(v, value)
+    if (v && typeof v === 'object') {
+      const dup = seenObjects.findIndex((x) => x.ref === v)
+      if (dup >= 0) shared.push([seenObjects[dup].key, k])
+      else seenObjects.push({ key: k, ref: v })
+    }
+  }
+  if (shared.length) shape.sharedRefs = shared
+  return shape
 }
 
 function serialize (value) {
@@ -270,6 +518,122 @@ async function runArgCase (value) {
   return { outcome: 'decoded', arg: describeAny(Array.isArray(dec.v) ? dec.v[0] : dec.v) }
 }
 
+// -- matrix-specific probes: same round-trips, plus the describeShape view ----
+async function matrixClientOutcome (wire) {
+  const input = new PassThrough()
+  input.end(Buffer.from(wire))
+  const decoded = createFromNodeStream(input, {
+    moduleMap: {},
+    serverModuleMap: {},
+    moduleLoading: null,
+  })
+  const rootRes = await withTimeout(Promise.resolve(decoded))
+  if (rootRes.timeout) return { outcome: 'timeout' }
+  if (!rootRes.ok) {
+    return { outcome: 'rejected', ...describeAny(rootRes.e) }
+  }
+  let root = Array.isArray(rootRes.v) ? rootRes.v[0] : rootRes.v
+  guardUnhandled(root)
+  if (root && typeof root.then === 'function') {
+    const inner = await withTimeout(Promise.resolve(root))
+    if (inner.timeout) return { outcome: 'promise-timeout' }
+    if (!inner.ok) return { outcome: 'rejected', ...describeAny(inner.e) }
+    root = inner.v
+  }
+  return { outcome: 'resolved', ...describeAny(root), shape: describeShape(root) }
+}
+
+async function probeMatrixReturn (value) {
+  const { wire, serializationErrors } = await serialize(value)
+  const serErr = serializationErrors.length
+    ? String(serializationErrors[0].message || serializationErrors[0]).slice(0, 140)
+    : null
+  return {
+    serializationThrew: serializationErrors.length > 0,
+    serverErrorMessage: serErr,
+    wire: wire.length > 400 ? wire.slice(0, 400) + '…' : wire,
+    client: wire ? await matrixClientOutcome(wire) : { outcome: 'no-wire' },
+  }
+}
+
+// Next-faithful arg probe: client-side encodeReply with a fresh temporary
+// reference set (server-action-reducer.js), server-side decodeReply with its
+// OWN fresh set (action-handler.js). The client's set cannot help the server
+// resolve anything — it only round-trips references back to the client.
+async function probeMatrixArg (value) {
+  const enc = await withTimeout(Promise.resolve(encodeReply([value], { temporaryReferences: createClientTempRefs() })))
+  if (enc.timeout) return { outcome: 'encode-timeout' }
+  if (!enc.ok) {
+    return { outcome: 'encode-rejected', message: String((enc.e && enc.e.message) || enc.e).slice(0, 140) }
+  }
+  const dec = await withTimeout(Promise.resolve(decodeReply(enc.v, { serverModuleMap: {}, clientModules: {} }, { temporaryReferences: createServerTempRefs() })))
+  if (dec.timeout) return { outcome: 'decode-timeout' }
+  if (!dec.ok) {
+    return { outcome: 'decode-rejected', message: String((dec.e && dec.e.message) || dec.e).slice(0, 140) }
+  }
+  const arg = Array.isArray(dec.v) ? dec.v[0] : dec.v
+  guardUnhandled(arg)
+  return { outcome: 'decoded', arg: { ...describeAny(arg), shape: describeShape(arg) } }
+}
+
+// -- server-function VALUES (docs: supported both directions) -----------------
+// The library's runtime walker must let through functions tagged
+// $$typeof === Symbol.for('react.server.reference') (what registerServerReference
+// applies — and what Next's codegen applies to every 'use server' export).
+// Everything proves out: those cross as live callables, NOT as opaque refs.
+async function probeServerRefs () {
+  const out = { arg: {}, ret: {} }
+  const SERVER_REF_TAG = Symbol.for('react.server.reference')
+
+  // args direction: client passes an imported server function (as created by
+  // the bundler's createServerReference) — top-level and nested in a plain object.
+  const clientAction = createClientServerRef('fixture:ref')
+  out.arg.clientSide = { typeof: typeof clientAction, tag: String(clientAction.$$typeof) }
+  const enc = await withTimeout(Promise.resolve(
+    encodeReply([clientAction, { act: clientAction }], { temporaryReferences: createClientTempRefs() })
+  ))
+  if (!enc.ok) {
+    out.arg.encode = 'rejected: ' + String((enc.e && enc.e.message) || enc.e).slice(0, 160)
+    return out
+  }
+  out.arg.encoded = true
+  const wireJSON = enc.v instanceof FormData
+    ? String([...enc.v.entries()].find(([k]) => k === '0')?.[1] ?? '').slice(0, 200)
+    : String(enc.v).slice(0, 200)
+  out.arg.wireJSON = wireJSON
+  const dec = await withTimeout(Promise.resolve(
+    decodeReply(enc.v, SERVER_REF_MANIFEST, { temporaryReferences: createServerTempRefs() })
+  ))
+  if (!dec.ok) {
+    out.arg.decode = 'rejected: ' + String((dec.e && dec.e.message) || dec.e).slice(0, 160)
+    return out
+  }
+  const top = dec.v[0]
+  const nested = dec.v[1] && dec.v[1].act
+  out.arg.decodedTop = {
+    typeof: typeof top,
+    tag: String(top && top.$$typeof),
+    tagMatches: top && top.$$typeof === SERVER_REF_TAG,
+    call: typeof top === 'function' ? String(top()) : undefined,
+  }
+  out.arg.decodedNested = {
+    typeof: typeof nested,
+    tagMatches: nested && nested.$$typeof === SERVER_REF_TAG,
+    sameAsTop: nested === top,
+  }
+
+  // return direction: a registered server function (as Next's 'use server'
+  // modules are) renders as a $h handle with metadata, no serialization error.
+  const serverFn = registerServerReference(function fixtureRet () { return 'ret-called' }, 'fixture:ret', 'fixtureRet')
+  out.ret.registeredSide = { typeof: typeof serverFn, tagMatches: serverFn.$$typeof === SERVER_REF_TAG }
+  const { wire, serializationErrors } = await serialize([serverFn, { act: serverFn }])
+  out.ret.serializationThrew = serializationErrors.length > 0
+  out.ret.serverErrorMessage = serializationErrors.length ? String(serializationErrors[0].message || serializationErrors[0]).slice(0, 160) : null
+  out.ret.wireHasHandle = wire.includes('"$h')
+  out.ret.wire = wire.length > 400 ? wire.slice(0, 400) + '…' : wire
+  return out
+}
+
 async function main () {
   const out = {
     mode: process.env.NODE_ENV || 'not-set',
@@ -279,6 +643,7 @@ async function main () {
     family: {},
     symmetric: {},
     args: {},
+    matrix: {},
   }
 
   // Core cases keep their historical shape exactly.
@@ -309,6 +674,14 @@ async function main () {
   for (const [name, makeValue] of Object.entries(argCases)) {
     out.args[name] = await runArgCase(makeValue())
   }
+  for (const [name, makeValue] of Object.entries(matrixCases)) {
+    // fresh value per direction: cycles, one-shot streams, and the factories
+    out.matrix[name] = {
+      ret: await probeMatrixReturn(makeValue()),
+      arg: await probeMatrixArg(makeValue()),
+    }
+  }
+  out.serverRefs = await probeServerRefs()
 
   out.logs = logs.slice(0, 40)
   process.stdout.write(JSON.stringify(out, null, 2) + '\n')

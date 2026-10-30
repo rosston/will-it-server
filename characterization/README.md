@@ -23,12 +23,36 @@ be validated against real-world behavior and re-checked when versions move.
   invalid Date→null, Buffer→`{type:'Buffer',data}`) behave the same in both
   modes. Arguments fail at encode time symmetrically. Headline invariant:
   nothing flips success/failure across modes — only Error-bearing returns
-  diverge in content.
+  diverge in content. (Note: the arguments pins here characterize the BARE
+  Flight encode path — see the next bullet for what Next actually does.)
+- `test/flightValueMatrix.test.js` — the value matrix: 40
+  values probed in BOTH directions × dev/prod, plus a `serverRefs` section
+  for Server-Function VALUES. Pins: nested promises cross as live thenables
+  both ways; cycles/shared refs round-trip with identity
+  restored; FormData crosses both directions (nested included); binary types
+  (ArrayBuffer/typed arrays/DataView/Blob/File/ReadableStream/async
+  iterables) cross with ctors intact; symbol-KEYED members are silently
+  dropped; registered symbols pass S→C but never as args; invalid Dates
+  arrive `null` both ways; throwing getters sink everything; Error VALUES
+  as args arrive opaque under refs. Server-Function values are the one
+  function class that crosses cleanly: `$h` handles that decode into live,
+  tagged callables (`$$typeof === Symbol.for('react.server.reference')`).
+  Its ARG probes
+  mimic Next's real action path (client `encodeReply` with a fresh
+  TemporaryReferenceSet, server decode with its own) — which turns the
+  "loud encode failure" class into SILENT opaque placeholders: classes,
+  elements, symbols, Errors, even functions arrive server-side as
+  throw-on-touch proxies instead of erroring client-side.
 - `test/fixtures/flight-error-roundtrip.js` — drives the actual
   `react-server-dom-webpack` serializer and deserializer for both builds
   (via `NODE_ENV`, the same mechanism Next.js uses) in both directions
   (server→client returns, client→server args) and reports what the client
-  side ends up with.
+  side ends up with. Its `matrix` section uses the Next-faithful
+  temp-references arg path; the older `args` section keeps the bare path.
+  The `serverRefs` section decodes `$h` handles through a simulated
+  server-reference manifest (`test/fixtures/server-ref-target.js` plays the
+  part of a `'use server'` module, registering its exports the way Next's
+  codegen does).
 
 ## Why exact version pins
 
